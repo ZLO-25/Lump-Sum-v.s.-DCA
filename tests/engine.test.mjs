@@ -137,3 +137,14 @@ test("每年買在最高 / 最低點：上漲市場中最低點 ≥ 年初 ≥ �
   const f = yearlyTimingTest(flat, { amount: 100, fromYear: 2000, toYear: 2002 });
   close(f.worst, f.invested); close(f.best, f.invested);
 });
+
+test("管理金鑰：用密碼加密後只有正確密碼能解開", async () => {
+  const { encryptSecret, decryptSecret, validateConfig } = await import("../assets/js/admin.js");
+  const blob = await encryptSecret("github_pat_example123", "correct horse", 1000);
+  assert.ok(!JSON.stringify(blob).includes("github_pat"), "密文不應包含明文 Token");
+  assert.equal(await decryptSecret(blob, "correct horse"), "github_pat_example123");
+  assert.equal(await decryptSecret(blob, "wrong"), null);
+  assert.throws(() => validateConfig({ groups: [{ name: "a", tickers: [{ symbol: "SPY" }, { symbol: "SPY" }] }] }), /重複/);
+  assert.throws(() => validateConfig({ groups: [{ name: "a", tickers: [{ symbol: "BAD SYM" }] }] }), /格式/);
+  validateConfig({ groups: [{ name: "a", tickers: [{ symbol: "0050.TW" }, { symbol: "^GSPC" }, { symbol: "6488.TWO" }, { symbol: "BRK-B" }] }] });
+});

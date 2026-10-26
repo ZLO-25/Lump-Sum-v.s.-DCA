@@ -64,6 +64,8 @@ jobs:
         run: |
           mkdir -p _site
           cp -r index.html assets data _site/
+          # 加密過的管理金鑰（由網站「管理標的」初次設定時寫入）
+          if [ -d config ]; then cp -r config _site/; fi
           touch _site/.nojekyll
 
       - uses: actions/configure-pages@v5

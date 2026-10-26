@@ -22,6 +22,7 @@
   <label class="secondary small" style="cursor:pointer" title="上傳自己的歷史價格 CSV（欄位：Date, Close 或 Adj Close）">
     📂 上傳 CSV<input type="file" id="csv-upload" accept=".csv,text/csv" hidden>
   </label>
+  <button type="button" class="secondary small" id="admin-open" title="管理網站的標的清單（需要密碼）" style="width:auto">⚙️ 管理標的</button>
 </header>
 
 <nav class="tabs" role="tablist">
@@ -44,7 +45,7 @@
 
       <div class="field">
         <span class="label">投資標的 <span class="hint">最多 5 檔，從下拉選單選擇；按 × 移除</span></span>
-        <div class="picker" data-picker="dca" data-default="SPY,QQQ,0005.HK" data-max="5"></div>
+        <div class="picker" data-picker="dca" data-default="SPY,QQQ,0050.TW" data-max="5"></div>
       </div>
 
       <div class="field">
@@ -537,6 +538,12 @@ DCA 某一天的總資產 = 尚未投入的現金 × (1 + 利率)^經過時間
   資料來源：Yahoo Finance（還原權息價，每個平日自動更新）· 僅供教育用途，不構成投資建議 · 過去績效不代表未來
 </footer>
 
+<dialog id="admin-dialog" aria-label="管理標的清單">
+  <button type="button" id="admin-close" class="icon-btn" aria-label="關閉" style="float:right">✕</button>
+  <div id="admin-body"></div>
+</dialog>
+
 <script type="module" src="assets/js/app.js"></script>
+<script type="module" src="assets/js/admin.js"></script>
 </body>
 </html>

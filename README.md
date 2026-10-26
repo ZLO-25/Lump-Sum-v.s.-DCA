@@ -61,6 +61,30 @@
 
 ## 新增標的
 
+### 方法一：在網站上編輯（需要密碼）
+
+網站右上角「⚙️ 管理標的」→ 輸入密碼 → 新增 / 刪除標的或群組 → 「儲存並重新部署」，約 2 分鐘後生效，所有人都看得到。
+
+```
+第一次使用（只做一次）
+  建立 GitHub Fine-grained Token（只授權這個 repo，Contents: Read and write）
+        │
+        ▼
+  網站「⚙️ 管理標的」貼上 Token + 設定密碼
+        │  Token 用密碼加密（PBKDF2 60 萬次 + AES-256-GCM）
+        ▼
+  config/admin-key.json（存在 repo，公開但沒有密碼看不懂）
+
+之後每次編輯
+  輸入密碼 → 解密出 Token（只在記憶體）→ GitHub API 更新 scripts/tickers.json
+        → 觸發 GitHub Actions → 抓新標的價格 → 重新部署
+```
+
+安全性取捨：加密檔是公開的，有心人可以離線一直猜密碼，所以**密碼越長越安全**；Token 只授權這個 repo 的內容寫入，最壞情況是有人改了這個網站，不會影響你其他帳號資料。忘記密碼或 Token 過期：刪除 `config/admin-key.json` 後重新設定。
+
+### 方法二：直接改檔案
+
+
 編輯 `scripts/tickers.json`，在任一群組加一行（代號用 Yahoo Finance 的寫法，例如台股 `2412.TW`）：
 
 ```json

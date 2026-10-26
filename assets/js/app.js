@@ -55,6 +55,7 @@ async function loadManifest() {
     if (!res.ok) throw new Error(res.status);
     state.manifest = await res.json();
     for (const g of state.manifest.groups) for (const t of g.tickers) state.meta.set(t.symbol, { ...t, group: g.name });
+    window.__tickerMeta = state.meta; // 給管理編輯器顯示「是否已有資料」
     status.textContent = `資料更新：${state.manifest.updated}（${state.meta.size} 檔）`;
     status.title = state.manifest.source;
   } catch {
