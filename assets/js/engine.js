@@ -496,3 +496,45 @@ export function volatilityStats(series, thresholds, start, end) {
     drawdown: { dates, values: drawdownSeries(px) },
   };
 }
+
+// ---------- 觀念教室：每年買在最高點 vs 最低點 ----------
+
+/**
+ * 每年投入固定金額，比較三種「運氣」：
+ *   worst = 每年都買在當年收盤最高的那天
+ *   best  = 每年都買在當年收盤最低的那天
+ *   first = 每年第一個交易日就買（不擇時）
+ * 期末價值以 toYear 最後一個交易日的收盤價計算。只納入資料完整涵蓋的年份。
+ */
+export function yearlyTimingTest(series, { amount, fromYear, toYear }) {
+  const byYear = new Map();
+  series.dates.forEach((d, i) => {
+    const y = +d.slice(0, 4);
+    if (y < fromYear || y > toYear) return;
+    if (!byYear.has(y)) byYear.set(y, []);
+    byYear.get(y).push(i);
+  });
+  const lastDataYear = +series.dates.at(-1).slice(0, 4);
+  const years = [...byYear.keys()].sort((a, b) => a - b).filter((y) => y < lastDataYear || series.dates.at(-1).slice(5) >= "12-20");
+  if (years.length < 2) return { error: "所選年份的資料不足兩個完整年度。" };
+
+  const px = series.close;
+  let sw = 0, sb = 0, sf = 0;
+  const rows = years.map((y) => {
+    const idx = byYear.get(y);
+    let hi = idx[0], lo = idx[0];
+    for (const i of idx) { if (px[i] > px[hi]) hi = i; if (px[i] < px[lo]) lo = i; }
+    sw += amount / px[hi]; sb += amount / px[lo]; sf += amount / px[idx[0]];
+    return { year: y, high: { date: series.dates[hi], price: px[hi] }, low: { date: series.dates[lo], price: px[lo] }, first: { date: series.dates[idx[0]], price: px[idx[0]] } };
+  });
+  const endIdx = byYear.get(years.at(-1)).at(-1);
+  const endPx = px[endIdx];
+  return {
+    years: years.length,
+    fromYear: years[0], toYear: years.at(-1),
+    endDate: series.dates[endIdx],
+    invested: amount * years.length,
+    worst: sw * endPx, best: sb * endPx, first: sf * endPx,
+    rows,
+  };
+}

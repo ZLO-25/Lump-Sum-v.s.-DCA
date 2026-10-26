@@ -124,3 +124,16 @@ test("波動統計：計數、連漲、索提諾", () => {
   assert.equal(v.maxUp.days, 2);
   close(v.maxUp.ret, 0.0816, 1e-6);
 });
+
+test("每年買在最高 / 最低點：上漲市場中最低點 ≥ 年初 ≥ 最高點", async () => {
+  const { yearlyTimingTest } = await import("../assets/js/engine.js");
+  const ser = makeSeries("2000-01-03", 2600, (i) => 100 * Math.pow(1.0004, i) * (1 + 0.05 * Math.sin(i / 9)));
+  const r = yearlyTimingTest(ser, { amount: 1000, fromYear: 2000, toYear: 2008 });
+  assert.equal(r.years, 9);
+  close(r.invested, 9000);
+  assert.ok(r.best >= r.first && r.first >= r.worst);
+  // 手算：價格固定 → 三者相同 = 投入金額
+  const flat = makeSeries("2000-01-03", 800, () => 50);
+  const f = yearlyTimingTest(flat, { amount: 100, fromYear: 2000, toYear: 2002 });
+  close(f.worst, f.invested); close(f.best, f.invested);
+});

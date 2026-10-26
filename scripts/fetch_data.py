@@ -31,6 +31,14 @@ def safe_name(symbol: str) -> str:
     return "".join(c if c.isalnum() or c in "-." else "_" for c in symbol)
 
 
+def currency_of(symbol: str) -> str:
+    if symbol.endswith(".TW") or symbol == "^TWII":
+        return "TWD"
+    if symbol.endswith(".HK") or symbol == "^HSI":
+        return "HKD"
+    return "USD"
+
+
 def round_sig(x: float, sig: int = 7) -> float:
     if x == 0 or not math.isfinite(x):
         return x
@@ -95,7 +103,7 @@ def main() -> int:
             tickers_out.append({
                 **t,
                 "file": file,
-                "currency": "TWD" if sym.endswith(".TW") or sym == "^TWII" else "USD",
+                "currency": currency_of(sym),
                 "start": payload["dates"][0],
                 "end": payload["dates"][-1],
                 "rows": len(payload["dates"]),

@@ -3,7 +3,7 @@
 // ============================================================
 import {
   lumpSumVsDca, rollingComparison, assetAllocation, volatilityStats,
-  toDay,
+  yearlyTimingTest, toDay,
 } from "./engine.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -34,7 +34,7 @@ const state = {
 };
 
 // ---------- 格式化 ----------
-const curPrefix = (cur) => (cur === "TWD" ? "NT$" : cur === "USD" ? "$" : "");
+const curPrefix = (cur) => ({ TWD: "NT$", USD: "$", HKD: "HK$" }[cur] || "");
 const fmtMoney = (v, cur) => `${curPrefix(cur)}${Math.round(v).toLocaleString("en-US")}`;
 const fmtPct = (x, signed = true) =>
   x == null || !isFinite(x) ? "—" : `${signed && x > 0 ? "+" : ""}${(x * 100).toFixed(2)}%`;
@@ -60,7 +60,7 @@ async function loadManifest() {
   } catch {
     status.innerHTML = "⚠️ 找不到價格資料，請確認 GitHub Actions 已執行，或先上傳 CSV";
   }
-  refreshDatalist();
+  refreshTickerSelects();
 }
 
 function loadSeries(sym) {
@@ -75,12 +75,23 @@ function loadSeries(sym) {
   return state.cache.get(sym);
 }
 
-function refreshDatalist() {
-  let dl = $("#ticker-list");
-  if (!dl) { dl = document.createElement("datalist"); dl.id = "ticker-list"; document.body.appendChild(dl); }
-  dl.innerHTML = [...state.meta.values()]
-    .map((m) => `<option value="${esc(m.symbol)}">${esc(m.name || "")}${m.start ? `｜${m.start.slice(0, 4)} 起` : ""}</option>`)
-    .join("");
+/** 依群組產生 <option>，所有「選標的」的下拉選單共用 */
+function tickerOptions(selected) {
+  const groups = new Map();
+  for (const m of state.meta.values()) {
+    if (!groups.has(m.group)) groups.set(m.group, []);
+    groups.get(m.group).push(m);
+  }
+  return [...groups].map(([g, list]) => `<optgroup label="${esc(g)}">${list.map((m) =>
+    `<option value="${esc(m.symbol)}"${m.symbol === selected ? " selected" : ""}>${esc(m.symbol)}　${esc(m.name || "")}${m.start ? `（${m.start.slice(0, 4)} 起）` : ""}</option>`).join("")}</optgroup>`).join("");
+}
+
+/** 資料清單載入或上傳 CSV 後，重建所有下拉選單 */
+function refreshTickerSelects() {
+  $$(".picker select").forEach((sel) => { sel.innerHTML = `<option value="">＋ 從清單選擇標的加入…</option>${tickerOptions()}`; });
+  $$("#alloc-rows select").forEach((sel) => { const v = sel.value || sel.dataset.want; sel.innerHTML = `<option value="">選擇標的…</option>${tickerOptions(v)}`; });
+  const t = $("#timing-sym");
+  if (t) t.innerHTML = tickerOptions(t.value || "^GSPC");
   Object.keys(state.pickers).forEach(renderChips);
 }
 
@@ -90,6 +101,8 @@ function resolveSymbol(text) {
   if (!q) return null;
   const up = q.toUpperCase();
   for (const sym of state.meta.keys()) if (sym.toUpperCase() === up) return sym;
+  // 只輸入數字代號也可以：0050 → 0050.TW、0005 → 0005.HK
+  for (const sym of state.meta.keys()) if (sym.toUpperCase().split(".")[0] === up) return sym;
   for (const m of state.meta.values()) if ((m.name || "").toLowerCase().includes(q.toLowerCase())) return m.symbol;
   return state.meta.size ? null : up; // 清單還沒載入時先接受
 }
@@ -136,8 +149,8 @@ $("#csv-upload").addEventListener("change", async (e) => {
     const s = parseCsv(await f.text(), f.name);
     state.meta.set(s.symbol, { symbol: s.symbol, name: "自己上傳的資料", currency: "", start: s.dates[0], end: s.dates.at(-1), group: "我上傳的資料" });
     state.cache.set(s.symbol, Promise.resolve(s));
-    refreshDatalist();
-    alert(`✅ 已載入 ${s.symbol}：${s.dates[0]} ~ ${s.dates.at(-1)}，共 ${s.dates.length} 筆。\n在任何「投資標的」欄位輸入「${s.symbol}」即可使用（重新整理頁面後會消失）。`);
+    refreshTickerSelects();
+    alert(`✅ 已載入 ${s.symbol}：${s.dates[0]} ~ ${s.dates.at(-1)}，共 ${s.dates.length} 筆。\n在任何「投資標的」下拉選單的「我上傳的資料」群組裡就能選到「${s.symbol}」（重新整理頁面後會消失）。`);
   } catch (err) {
     alert("❌ " + err.message);
   }
@@ -149,30 +162,23 @@ function initPickers() {
   $$(".picker").forEach((el) => {
     const name = el.dataset.picker;
     state.pickers[name] = el.dataset.default.split(",").filter(Boolean);
-    el.innerHTML = `
-      <div class="picker-row">
-        <input type="text" list="ticker-list" placeholder="例如 SPY、0050.TW、台積電" aria-label="新增標的">
-        <button type="button" class="secondary small">加入</button>
-      </div>
-      <div class="chips"></div>`;
-    const input = $("input", el);
-    const add = () => {
-      const sym = resolveSymbol(input.value);
-      if (!sym) { alert(`找不到「${input.value}」。可從下拉清單選擇，或用右上角「上傳 CSV」。`); return; }
+    el.innerHTML = `<select aria-label="選擇投資標的"></select><div class="chips"></div><div class="hint picker-msg" role="status"></div>`;
+    const sel = $("select", el);
+    // 用下拉選單取代原本的「輸入框 + 加入按鈕」：選了就加入，不會打錯代號
+    sel.addEventListener("change", () => {
+      const sym = sel.value;
+      sel.value = "";
+      if (!sym) return;
       const max = +el.dataset.max;
       const list = state.pickers[name];
-      if (!list.includes(sym)) {
-        if (max === 1) list.splice(0, list.length, sym);
-        else if (list.length >= max) { alert(`最多 ${max} 檔`); return; }
-        else list.push(sym);
-      }
-      input.value = "";
+      const msg = $(".picker-msg", el);
+      msg.textContent = "";
+      if (list.includes(sym)) { msg.textContent = `${sym} 已經在清單裡了`; return; }
+      if (max === 1) list.splice(0, list.length, sym);
+      else if (list.length >= max) { msg.textContent = `最多 ${max} 檔，請先按 × 移除一檔`; return; }
+      else list.push(sym);
       renderChips(name);
-    };
-    $("button", el).addEventListener("click", add);
-    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); add(); } });
-    input.addEventListener("change", () => { if (state.meta.has(input.value)) add(); });
-    renderChips(name);
+    });
   });
 }
 
@@ -296,7 +302,7 @@ function renderDca(out, results, opts, warns) {
     if (r.years < 1) warns.push(`<b>${esc(r.symbol)}</b>：回測期間不到 1 年，年化報酬率會被放大，請以總報酬率為主。`);
   }
   const curs = new Set(results.map((r) => currencyOf(r.symbol)).filter(Boolean));
-  if (curs.size > 1) warns.push("同時包含新台幣與美元計價的標的，金額未換匯，請比較「報酬率」而不是金額。");
+  if (curs.size > 1) warns.push(`同時包含不同幣別的標的（${[...curs].join("、")}），金額沒有換匯，請比較「報酬率」而不是金額。`);
   const notesUniq = [...new Set(results.map((r) => state.meta.get(r.symbol)?.note).filter((n) => n && n.includes("不含股息")))];
   if (notesUniq.length) warns.push("指數（^GSPC、^TWII）是價格指數，<b>不含股息</b>，長期報酬會被低估。");
 
@@ -522,18 +528,19 @@ function renderRolling(out, sym, res, opts) {
 function addAllocRow(sym = "", w = "") {
   const row = document.createElement("div");
   row.className = "alloc-row";
-  row.innerHTML = `<input type="text" list="ticker-list" value="${esc(sym)}" placeholder="代號" aria-label="標的代號">
+  row.innerHTML = `<select aria-label="標的代號" data-want="${esc(sym)}"><option value="">選擇標的…</option>${tickerOptions(sym)}</select>
     <input type="number" value="${w}" min="0" max="100" step="5" aria-label="比例 %" placeholder="%">
     <button type="button" aria-label="移除">✕</button>`;
   $("button", row).addEventListener("click", () => { row.remove(); updateAllocSum(); });
-  $$("input", row).forEach((i) => i.addEventListener("input", updateAllocSum));
+  $("input", row).addEventListener("input", updateAllocSum);
+  $("select", row).addEventListener("change", (e) => { delete e.target.dataset.want; });
   $("#alloc-rows").appendChild(row);
   updateAllocSum();
 }
 function readAllocRows() {
   return $$("#alloc-rows .alloc-row").map((r) => {
-    const [a, b] = $$("input", r);
-    return { raw: a.value.trim(), w: parseFloat(b.value) || 0 };
+    const a = $("select", r), b = $("input", r);
+    return { raw: a.value || a.dataset.want || "", w: parseFloat(b.value) || 0 };
   }).filter((x) => x.raw || x.w);
 }
 function updateAllocSum() {
@@ -591,7 +598,7 @@ function renderAlloc(out, syms, res, opts) {
   }
   const curs = new Set(syms.map(currencyOf).filter(Boolean));
   const cur = curs.size === 1 ? [...curs][0] : "";
-  if (curs.size > 1) warns.push("⚠️ 同時混合新台幣與美元計價的標的，但<b>沒有做匯率換算</b>，結果會失真。建議同一幣別的標的放在一起回測。");
+  if (curs.size > 1) warns.push(`⚠️ 同時混合不同幣別的標的（${[...curs].join("、")}），但<b>沒有做匯率換算</b>，結果會失真。建議同一幣別的標的放在一起回測。`);
   const wdRate = opts.withdraw.enabled ? (opts.withdraw.amount * (opts.withdraw.freq === "month" ? 12 : 1)) / opts.capital : 0;
 
   out.innerHTML = `
@@ -857,6 +864,36 @@ const Wall = (() => {
   }
   return { activate, deactivate };
 })();
+
+// ============================================================
+// 觀念教室：每年買在最高點 vs 最低點
+// ============================================================
+$("#form-timing").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const out = $("#out-timing");
+  try {
+    const sym = $("#timing-sym").value;
+    const fromYear = Math.round(readNum("#timing-from", { min: 1900, max: 2100, name: "從哪一年" }));
+    const toYear = Math.round(readNum("#timing-to", { min: fromYear, max: 2100, name: "到哪一年" }));
+    const amount = readNum("#timing-amt", { min: 1, name: "每年投入" });
+    out.innerHTML = `<span class="spinner"></span> 計算中…`;
+    const r = yearlyTimingTest(await loadSeries(sym), { amount, fromYear, toYear });
+    if (r.error) throw new Error(r.error);
+    const cur = currencyOf(sym);
+    const gap = r.best / r.worst - 1;
+    out.innerHTML = `
+      <div class="cards">
+        <div class="card"><div class="k">總投入（${r.fromYear}～${r.toYear}，${r.years} 年）</div><div class="v">${fmtMoney(r.invested, cur)}</div><div class="s">價值計算到 ${r.endDate}</div></div>
+        <div class="card dca"><div class="k">😫 每年都買在最高點</div><div class="v">${fmtMoney(r.worst, cur)}</div><div class="s">${fmtPct(r.worst / r.invested - 1)}</div></div>
+        <div class="card ls"><div class="k">🍀 每年都買在最低點</div><div class="v">${fmtMoney(r.best, cur)}</div><div class="s">${fmtPct(r.best / r.invested - 1)}</div></div>
+        <div class="card"><div class="k">🙂 每年第一天就買</div><div class="v">${fmtMoney(r.first, cur)}</div><div class="s">${fmtPct(r.first / r.invested - 1)}</div></div>
+      </div>
+      <p>神準擇時和最倒楣擇時只差 <b>${fmtPct(gap, false)}</b>；但最倒楣的人，資產仍是投入本金的 <b>${fmtNum(r.worst / r.invested, 1)} 倍</b>。${r.worst > r.invested ? "重點是「有沒有一直投入」，而不是「買在哪一天」。" : "這段期間市場整體下跌，任何擇時都難以避免虧損，這也是要搭配股債配置的原因。"}</p>
+      <details class="explain"><summary>查看每年的最高點與最低點</summary><div class="table-wrap"><table class="data"><thead><tr><th>年度</th><th>最高點（日期）</th><th>最低點（日期）</th><th>年初</th></tr></thead><tbody>${
+        r.rows.map((x) => `<tr><td>${x.year}</td><td>${fmtNum(x.high.price)}（${x.high.date.slice(5)}）</td><td>${fmtNum(x.low.price)}（${x.low.date.slice(5)}）</td><td>${fmtNum(x.first.price)}</td></tr>`).join("")
+      }</tbody></table></div></details>`;
+  } catch (err) { out.innerHTML = `<div class="notice error">❌ ${esc(err.message)}</div>`; }
+});
 
 // ============================================================
 // 網址參數（方便把設定好的回測分享給別人）
