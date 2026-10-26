@@ -1,0 +1,68 @@
+{
+  "_說明": "想新增標的：在對應群組加一行 {\"symbol\": Yahoo Finance 代號, \"name\": 顯示名稱}，push 後 GitHub Actions 會自動抓資料並重新部署。",
+  "groups": [
+    {
+      "name": "美股大盤 / 指數",
+      "tickers": [
+        {"symbol": "^GSPC", "name": "S&P 500 指數", "note": "價格指數，不含股息；歷史可回溯到 1927 年，適合看 1929 大蕭條等早期事件"},
+        {"symbol": "SPY", "name": "SPDR S&P 500 ETF"},
+        {"symbol": "VOO", "name": "Vanguard S&P 500 ETF"},
+        {"symbol": "VTI", "name": "Vanguard 美國全市場 ETF"},
+        {"symbol": "QQQ", "name": "Invesco 那斯達克 100 ETF"},
+        {"symbol": "DIA", "name": "SPDR 道瓊工業 ETF"}
+      ]
+    },
+    {
+      "name": "全球 / 國際",
+      "tickers": [
+        {"symbol": "VT", "name": "Vanguard 全世界股票 ETF"},
+        {"symbol": "VXUS", "name": "Vanguard 美國以外全球股票 ETF"},
+        {"symbol": "EFA", "name": "iShares 已開發市場(美國除外) ETF"},
+        {"symbol": "EEM", "name": "iShares 新興市場 ETF"}
+      ]
+    },
+    {
+      "name": "債券 / 黃金",
+      "tickers": [
+        {"symbol": "BND", "name": "Vanguard 美國總體債券 ETF"},
+        {"symbol": "AGG", "name": "iShares 美國核心綜合債券 ETF"},
+        {"symbol": "TLT", "name": "iShares 20 年期以上美國公債 ETF"},
+        {"symbol": "IEF", "name": "iShares 7-10 年期美國公債 ETF"},
+        {"symbol": "SHY", "name": "iShares 1-3 年期美國公債 ETF"},
+        {"symbol": "GLD", "name": "SPDR 黃金 ETF"}
+      ]
+    },
+    {
+      "name": "台股",
+      "tickers": [
+        {"symbol": "0050.TW", "name": "元大台灣 50", "note": "新台幣計價"},
+        {"symbol": "006208.TW", "name": "富邦台 50", "note": "新台幣計價"},
+        {"symbol": "^TWII", "name": "台灣加權指數", "note": "價格指數，不含股息；新台幣計價"},
+        {"symbol": "2330.TW", "name": "台積電", "note": "新台幣計價"},
+        {"symbol": "2317.TW", "name": "鴻海", "note": "新台幣計價"},
+        {"symbol": "2454.TW", "name": "聯發科", "note": "新台幣計價"}
+      ]
+    },
+    {
+      "name": "美股個股",
+      "tickers": [
+        {"symbol": "AAPL", "name": "Apple"},
+        {"symbol": "MSFT", "name": "Microsoft"},
+        {"symbol": "NVDA", "name": "NVIDIA"},
+        {"symbol": "GOOGL", "name": "Alphabet"},
+        {"symbol": "AMZN", "name": "Amazon"},
+        {"symbol": "META", "name": "Meta"},
+        {"symbol": "TSLA", "name": "Tesla"},
+        {"symbol": "BRK-B", "name": "Berkshire Hathaway B"},
+        {"symbol": "TSM", "name": "台積電 ADR"}
+      ]
+    },
+    {
+      "name": "加密貨幣",
+      "tickers": [
+        {"symbol": "BTC-USD", "name": "比特幣", "note": "7 天 24 小時交易，一年約 365 個交易日"},
+        {"symbol": "ETH-USD", "name": "以太幣", "note": "7 天 24 小時交易，一年約 365 個交易日"}
+      ]
+    }
+  ]
+}

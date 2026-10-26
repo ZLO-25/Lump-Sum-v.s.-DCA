@@ -1,0 +1,83 @@
+# 流程：
+#   觸發（push 到 main / 每個平日早上 / 手動）
+#     → 跑單元測試（確認計算邏輯沒壞）
+#     → 用 yfinance 下載最新價格存成 JSON
+#     → 打包網站 → 部署到 GitHub Pages
+name: 更新資料並部署 GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # UTC 22:30 = 台灣時間 06:30（美股收盤後），週一到週五
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 單元測試（計算邏輯）
+        run: npm test
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - run: pip install -r scripts/requirements.txt
+
+      # 取回上一次成功下載的資料：若某檔今天抓不到，就沿用舊資料，網站不會壞掉
+      - name: 還原上次的價格資料
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: price-data-${{ github.run_id }}
+          restore-keys: price-data-
+
+      - name: 下載最新價格
+        run: python scripts/fetch_data.py
+
+      - name: 保存價格資料供下次使用
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: price-data-${{ github.run_id }}
+
+      - name: 打包網站
+        run: |
+          mkdir -p _site
+          cp -r index.html assets data _site/
+          touch _site/.nojekyll
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

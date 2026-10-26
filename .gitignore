@@ -1,0 +1,6 @@
+node_modules/
+_site/
+__pycache__/
+.venv*/
+# 價格資料由 GitHub Actions 自動產生，不進版控（避免 repo 每天膨脹）
+data/

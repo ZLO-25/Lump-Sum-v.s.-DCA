@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>單筆投入 vs 定期定額</title>
+<meta name="description" content="用真實歷史資料回測「單筆投入 (Lump Sum)」與「定期定額 (DCA)」，附勝率分析、資產配置、波動統計與觀念教學。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<link rel="stylesheet" href="assets/css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly-basic.min.js"
+        onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/plotly.js-basic-dist-min@2.35.2/plotly-basic.min.js'"></script>
+</head>
+<body>
+
+<header class="site">
+  <div>
+    <h1>📈 單筆投入 vs 定期定額</h1>
+    <div class="sub">用真實歷史資料，看懂「一次買」和「分批買」的差別</div>
+  </div>
+  <div class="spacer"></div>
+  <div class="data-status" id="data-status"><span class="spinner"></span> 載入資料清單…</div>
+  <label class="secondary small" style="cursor:pointer" title="上傳自己的歷史價格 CSV（欄位：Date, Close 或 Adj Close）">
+    📂 上傳 CSV<input type="file" id="csv-upload" accept=".csv,text/csv" hidden>
+  </label>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="dca" aria-selected="true">📈 單筆 vs 定期定額</button>
+  <button role="tab" data-tab="rolling">🎲 勝率分析</button>
+  <button role="tab" data-tab="learn">📚 觀念教室</button>
+  <button role="tab" data-tab="alloc">💼 資產配置</button>
+  <button role="tab" data-tab="vol">⚡ 波動與風險</button>
+  <button role="tab" data-tab="wall">🖥️ 看盤牆</button>
+</nav>
+
+<main>
+
+<!-- ======================= 1. 單筆 vs 定期定額 ======================= -->
+<section class="tab active" id="tab-dca">
+  <div class="layout">
+    <form class="panel controls" id="form-dca" autocomplete="off" novalidate>
+      <h2>設定</h2>
+      <p class="intro">假設你手上已經有一筆錢，要「一次全部買進」還是「分幾個月慢慢買」？</p>
+
+      <div class="field">
+        <span class="label">投資標的 <span class="hint">最多 5 檔，可輸入代號或名稱搜尋</span></span>
+        <div class="picker" data-picker="dca" data-default="SPY,QQQ" data-max="5"></div>
+      </div>
+
+      <div class="field">
+        <label for="dca-amount">總投資金額</label>
+        <input type="number" id="dca-amount" value="1000000" min="1000" step="any">
+        <span class="hint">台股標的視為新台幣，美股視為美元（不做匯率換算）</span>
+      </div>
+
+      <div class="field">
+        <label for="dca-event">快速選擇歷史事件</label>
+        <select id="dca-event" data-event-for="dca"></select>
+        <span class="hint">「高點」= 買在最慘的時候；「低點」= 買在最好的時候</span>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="dca-start">開始日期</label><input type="date" id="dca-start" value="2018-01-02"></div>
+        <div class="field"><label for="dca-end">結束日期</label><input type="date" id="dca-end"></div>
+      </div>
+
+      <div class="group-title">定期定額怎麼買</div>
+      <div class="row2">
+        <div class="field"><label for="dca-months">分幾個月買完</label><input type="number" id="dca-months" value="12" min="1" max="240"></div>
+        <div class="field"><label for="dca-count">分幾次扣款</label><input type="number" id="dca-count" value="12" min="1" max="520"></div>
+      </div>
+      <p class="hint" id="dca-plan-hint" style="margin-top:6px"></p>
+      <div class="field">
+        <label for="dca-yield">還沒投入的現金年利率（%）</label>
+        <input type="number" id="dca-yield" value="0" min="0" max="20" step="0.1">
+        <span class="hint">等待扣款的錢若放定存/貨幣基金會有利息。填 0 = 放在床底下。</span>
+      </div>
+
+      <button type="submit" class="primary">🚀 開始回測</button>
+    </form>
+
+    <div id="out-dca">
+      <div class="panel placeholder"><div class="big">📈</div>設定好左邊的參數，按「開始回測」。<br>第一次使用？建議先試試「2007 金融海嘯高點」和「2009 金融海嘯低點」，比較看看差在哪。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 2. 勝率分析 ======================= -->
+<section class="tab" id="tab-rolling">
+  <div class="layout">
+    <form class="panel controls" id="form-rolling" autocomplete="off" novalidate>
+      <h2>設定</h2>
+      <p class="intro">只看一個起點容易被「運氣」誤導。這裡會把<b>過去每一個月都當成起點</b>各算一次，統計單筆投入贏的機率。</p>
+
+      <div class="field">
+        <span class="label">投資標的</span>
+        <div class="picker" data-picker="rolling" data-default="^GSPC" data-max="1"></div>
+        <span class="hint">想看越長的歷史越好，例如 ^GSPC（1927 年起）</span>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="roll-from">起點最早從</label><input type="date" id="roll-from" value="1950-01-01"></div>
+        <div class="field"><label for="roll-horizon">每次持有幾年</label>
+          <select id="roll-horizon"><option value="12">1 年</option><option value="36">3 年</option><option value="60">5 年</option><option value="120" selected>10 年</option><option value="240">20 年</option></select>
+        </div>
+      </div>
+
+      <div class="group-title">定期定額怎麼買</div>
+      <div class="row2">
+        <div class="field"><label for="roll-months">分幾個月買完</label><input type="number" id="roll-months" value="12" min="1" max="120"></div>
+        <div class="field"><label for="roll-count">分幾次扣款</label><input type="number" id="roll-count" value="12" min="1" max="520"></div>
+      </div>
+      <div class="field" style="margin-top:14px">
+        <label for="roll-yield">還沒投入的現金年利率（%）</label>
+        <input type="number" id="roll-yield" value="0" min="0" max="20" step="0.1">
+      </div>
+      <button type="submit" class="primary">🎲 計算勝率</button>
+    </form>
+
+    <div id="out-rolling">
+      <div class="panel placeholder"><div class="big">🎲</div>這個分析會回答：<br><b>「如果我隨便挑一天拿到一筆錢，一次買進贏過分批買進的機率有多高？」</b></div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 3. 觀念教室 ======================= -->
+<section class="tab" id="tab-learn">
+  <div class="lesson">
+    <div class="panel">
+      <h2>📚 觀念教室：五分鐘搞懂單筆 vs 定期定額</h2>
+      <p>這一頁整理回測背後的觀念。每一段都可以單獨拿去教別人。</p>
+      <ol class="toc">
+        <li><a href="#l1">兩種策略到底差在哪</a></li>
+        <li><a href="#l2">怎樣才算「公平比較」</a></li>
+        <li><a href="#l3">為什麼單筆投入通常贏</a></li>
+        <li><a href="#l4">什麼時候定期定額會贏</a></li>
+        <li><a href="#l5">「平均成本比較低」的迷思</a></li>
+        <li><a href="#l6">薪水定投 ≠ 這裡的定期定額</a></li>
+        <li><a href="#l7">指標小辭典</a></li>
+        <li><a href="#l8">我該怎麼選？</a></li>
+        <li><a href="#l9">這個工具的限制</a></li>
+      </ol>
+    </div>
+
+    <div class="panel" id="l1">
+      <h2>1. 兩種策略到底差在哪</h2>
+      <p>前提：<b>你手上已經有一整筆錢</b>（例如年終、繼承、賣房），現在要決定怎麼投入市場。</p>
+<pre class="ascii">
+單筆投入 (Lump Sum)：第一天全部買進，之後抱著不動
+  資金在市場內 ██████████████████████████████████  100%
+               └ 第 1 天 ─────────────────────────→ 結束
+
+定期定額 (DCA)：把錢切成 N 份，每隔一段時間買一份
+  第 1 個月    ███░░░░░░░░░   已投入 1/12，其餘是現金
+  第 6 個月    ██████░░░░░░   已投入 6/12
+  第 12 個月   ████████████   全部投入，之後同樣抱著不動
+               █ = 已買股票   ░ = 還在等的現金
+</pre>
+      <p>所以兩者唯一的差別是：<b>DCA 在買進期間，有一部分錢「還沒進場」</b>。後面所有結論都從這一點推出來。</p>
+    </div>
+
+    <div class="panel" id="l2">
+      <h2>2. 怎樣才算「公平比較」</h2>
+      <p>本工具遵守三條規則：</p>
+      <ol>
+        <li><b>同一筆總金額。</b>兩種策略都從同一天、同一筆錢開始。</li>
+        <li><b>還沒投入的現金也算資產。</b>DCA 的資產價值 = 手上現金 + 已買股票的市值。現金可以設定利率（例如放定存 1.5%）。</li>
+        <li><b>用還原權息價 (Adjusted Close)。</b>配息視為再投入，不然高股息標的會被低估。</li>
+      </ol>
+<pre class="ascii">
+DCA 某一天的總資產 = 尚未投入的現金 × (1 + 利率)^經過時間
+                    + 已累積股數 × 當天價格
+</pre>
+      <p>報酬率與年化報酬率 (CAGR) 都以「總投資金額」為分母，兩邊同一把尺。</p>
+    </div>
+
+    <div class="panel" id="l3">
+      <h2>3. 為什麼單筆投入通常贏</h2>
+      <p>因為股市長期是往上的。DCA 等待期間，那些還沒進場的錢錯過了上漲。</p>
+<pre class="ascii">
+價格
+  ↑                                        ╱
+  │                              ╱╲     ╱
+  │                    ╱╲     ╱    ╲╱
+  │          ╱╲     ╱    ╲╱
+  │    ╱╲ ╱    ╲╱
+  │ ╱
+  └─────────────────────────────────────────→ 時間
+   ↑ 單筆在這裡全買
+   ↑ ↑ ↑ ↑ ↑ ↑  DCA 分批買，後面幾筆通常買得比較貴
+</pre>
+      <p>Vanguard 在 2012 年的研究（美、英、澳市場）發現，單筆投入約有 <b>三分之二</b> 的時間贏過 12 個月的 DCA。你可以在「🎲 勝率分析」頁用真實資料自己驗證。</p>
+    </div>
+
+    <div class="panel" id="l4">
+      <h2>4. 什麼時候定期定額會贏</h2>
+      <p>當你剛好在<b>崩跌前</b>拿到錢。DCA 的後幾筆會買在低點，平均下來比較便宜。</p>
+<pre class="ascii">
+價格
+  ↑ ● 單筆全部買在這
+  │  ╲
+  │   ╲                         ╱
+  │    ╲        DCA 後半段     ╱
+  │     ╲     在低點撿便宜    ╱
+  │      ╲___________________╱
+  └─────────────────────────────────────→ 時間
+     ↑   ↑   ↑   ↑   ↑   ↑  DCA 扣款
+</pre>
+      <p>試試看：選「📉 2007 金融海嘯高點」或「📉 2000 網路泡沫高點」，DCA 會明顯領先。再選「📈 2009 金融海嘯低點」，單筆會大勝。<b>問題是事前沒人知道自己站在哪一種情境。</b></p>
+    </div>
+
+    <div class="panel" id="l5">
+      <h2>5. 「平均成本比較低」的迷思</h2>
+      <p>常聽到：「定期定額可以降低平均成本」。這句話數學上是對的，但<b>不代表比單筆賺得多</b>。</p>
+<pre class="ascii">
+例子：每次投入 1,000 元，買兩次
+  第 1 次  價格 10 元 → 買到 100 股
+  第 2 次  價格 20 元 → 買到  50 股
+  ------------------------------------------
+  平均價格 (兩次價格平均)   = (10 + 20) / 2  = 15 元
+  平均成本 (總花費/總股數)  = 2,000 / 150    = 13.33 元  ← 比較低！
+
+但如果第一天就用 2,000 元全買在 10 元 → 200 股，成本 10 元，更低。
+</pre>
+      <p>平均成本是「調和平均數」，數學上一定 ≤ 平均價格（價格貴時自動少買、便宜時多買）。可是它比較的對象是「平均價格」，不是「第一天的價格」。在上漲市場中，第一天往往就是最便宜的。回測結果頁會同時列出這兩個數字。</p>
+    </div>
+
+    <div class="panel" id="l6">
+      <h2>6. 薪水定投 ≠ 這裡的定期定額</h2>
+<pre class="ascii">
+情境 A：手上已有 120 萬            情境 B：每月薪水剩 1 萬
+  ├─ 一次買 120 萬                   └─ 每月領到就買 1 萬
+  └─ 分 12 個月每月買 10 萬             （錢本來就是分批出現的）
+  ↑ 這是本工具在比較的問題           ↑ 這沒有選擇題，領到就投入就對了
+</pre>
+      <p>情境 B 的「每月定投」其實就是「錢一到手就單筆投入」，是很好的習慣。本工具討論的是情境 A。</p>
+    </div>
+
+    <div class="panel" id="l7">
+      <h2>7. 指標小辭典</h2>
+      <dl>
+        <dt><b>總報酬率</b></dt><dd>期末資產 ÷ 投入金額 − 1。不管經過幾年。</dd>
+        <dt><b>年化報酬率 (CAGR)</b></dt><dd>如果每年報酬都一樣，要多少才能得到同樣的結果。公式 (期末 ÷ 期初)^(1/年數) − 1。期間不到一年時，年化數字會被放大，僅供參考。</dd>
+        <dt><b>最大回撤 (MDD)</b></dt><dd>從歷史最高點跌到之後最低點的最大跌幅。代表「最痛的時候帳面少了多少」。</dd>
+        <dt><b>年化波動率</b></dt><dd>每日報酬的標準差 × √(每年交易日數)。股票每年約 252 個交易日、加密貨幣約 365 天，本工具依資料自動判斷。</dd>
+        <dt><b>索提諾比率 (Sortino)</b></dt><dd>平均報酬 ÷ 下檔波動。只把「下跌」當成風險，越高代表承受同樣下跌風險換到越多報酬。本工具無風險利率設為 0。</dd>
+        <dt><b>時間加權報酬 (TWR)</b></dt><dd>資產配置頁用。扣除提領影響後，衡量「投資組合本身」漲了多少。有提領時，看期末餘額會低估投資表現，看 TWR 才準。</dd>
+      </dl>
+    </div>
+
+    <div class="panel" id="l8">
+      <h2>8. 我該怎麼選？</h2>
+<pre class="ascii">
+              手上已經有一筆閒錢？
+                 │
+        ┌────────┴────────┐
+        否                是
+        │                 │
+  錢一到手就投入     如果買完馬上跌 30%，
+  （薪水定投）       我會睡不著、甚至賣掉嗎？
+                          │
+                 ┌────────┴────────┐
+                 不會              會
+                 │                 │
+           單筆投入            分批投入（DCA）
+       （期望報酬較高）     買一個「心安」，代價是
+                           平均而言報酬稍低；
+                           分批期間建議 6~12 個月，
+                           等待的現金放高利活存/短債
+</pre>
+      <p>DCA 的價值是<b>降低後悔與情緒風險</b>，不是提高報酬。能讓你「買了就抱得住」的方法，就是好方法。</p>
+    </div>
+
+    <div class="panel" id="l9">
+      <h2>9. 這個工具的限制</h2>
+      <ul>
+        <li><b>沒算交易成本與稅。</b>DCA 次數越多手續費越多；美股股息有 30% 預扣稅，還原權息價假設股息全額再投入，會稍微高估。</li>
+        <li><b>沒做匯率換算。</b>台股以新台幣、美股以美元計算；混合配置時請注意。</li>
+        <li><b>指數不含股息。</b>^GSPC、^TWII 是價格指數，長期報酬會被低估（S&amp;P 500 股息每年約 1.5~4%）。</li>
+        <li><b>資料來源是 Yahoo Finance。</b>每個平日自動更新一次，偶有缺漏或錯誤。</li>
+        <li><b>過去不代表未來。</b>回測只能告訴你「歷史上發生過什麼」，不是預測。</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 4. 資產配置 ======================= -->
+<section class="tab" id="tab-alloc">
+  <div class="layout">
+    <form class="panel controls" id="form-alloc" autocomplete="off" novalidate>
+      <h2>設定</h2>
+      <p class="intro">股債配置 + 定期再平衡 + 退休提領的壓力測試。</p>
+
+      <div class="field">
+        <span class="label">資產配置 <span class="alloc-sum" id="alloc-sum"></span></span>
+        <div id="alloc-rows"></div>
+        <button type="button" class="secondary small" id="alloc-add">＋ 新增標的</button>
+      </div>
+
+      <div class="field">
+        <label for="alloc-capital">期初資金</label>
+        <input type="number" id="alloc-capital" value="1000000" min="1000" step="any">
+      </div>
+      <div class="field">
+        <label for="alloc-event">快速選擇歷史事件</label>
+        <select id="alloc-event" data-event-for="alloc"></select>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="alloc-start">開始日期</label><input type="date" id="alloc-start" value="2008-01-02"></div>
+        <div class="field"><label for="alloc-end">結束日期</label><input type="date" id="alloc-end"></div>
+      </div>
+
+      <div class="group-title">再平衡</div>
+      <div class="field">
+        <select id="alloc-rebal">
+          <option value="none">不再平衡（買進後放著）</option>
+          <option value="year" selected>每年（新年度第一個交易日）</option>
+          <option value="quarter">每季（新季度第一個交易日）</option>
+          <option value="month">每月（新月份第一個交易日）</option>
+        </select>
+        <span class="hint">把偏離的比例拉回目標：漲多的賣一點、跌多的買一點。</span>
+      </div>
+
+      <div class="group-title">提領</div>
+      <label class="checkbox"><input type="checkbox" id="alloc-wd"> 模擬退休提領</label>
+      <div id="alloc-wd-box" hidden style="margin-top:10px">
+        <div class="row2">
+          <div class="field"><label for="alloc-wd-amt">每次提領</label><input type="number" id="alloc-wd-amt" value="40000" min="0" step="1000"></div>
+          <div class="field"><label for="alloc-wd-freq">頻率</label><select id="alloc-wd-freq"><option value="year">每年初</option><option value="month">每月初</option></select></div>
+        </div>
+        <div class="field" style="margin-top:10px">
+          <label for="alloc-wd-inf">提領金額每年調高（%，抵銷通膨）</label>
+          <input type="number" id="alloc-wd-inf" value="0" min="0" max="15" step="0.5">
+          <span class="hint">經典「4% 法則」：第一年提 4%，之後每年依通膨（約 2~3%）調高。</span>
+        </div>
+      </div>
+
+      <button type="submit" class="primary" style="margin-top:14px">🚀 開始回測</button>
+    </form>
+    <div id="out-alloc">
+      <div class="panel placeholder"><div class="big">💼</div>預設是經典的 60% 股票 (SPY) + 40% 債券 (BND)。<br>試試把開始日期設在 2008 金融海嘯，再打開提領，看看資產撐不撐得住。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 5. 波動與風險 ======================= -->
+<section class="tab" id="tab-vol">
+  <div class="layout">
+    <form class="panel controls" id="form-vol" autocomplete="off" novalidate>
+      <h2>設定</h2>
+      <p class="intro">統計標的「股性」：單日大漲大跌的頻率、最長連漲連跌、最大回撤。</p>
+      <div class="field">
+        <span class="label">投資標的 <span class="hint">最多 5 檔</span></span>
+        <div class="picker" data-picker="vol" data-default="NVDA,TSLA,2330.TW" data-max="5"></div>
+      </div>
+      <div class="field">
+        <span class="label">單日漲跌幅門檻（%）</span>
+        <div class="row2" style="grid-template-columns:repeat(4,1fr)">
+          <input type="number" class="vol-t" value="3" min="0.1" step="0.5" aria-label="門檻1">
+          <input type="number" class="vol-t" value="5" min="0.1" step="0.5" aria-label="門檻2">
+          <input type="number" class="vol-t" value="10" min="0.1" step="0.5" aria-label="門檻3">
+          <input type="number" class="vol-t" value="15" min="0.1" step="0.5" aria-label="門檻4">
+        </div>
+      </div>
+      <div class="row2">
+        <div class="field"><label for="vol-start">開始日期</label><input type="date" id="vol-start"><span class="hint">空白 = 上市以來</span></div>
+        <div class="field"><label for="vol-end">結束日期</label><input type="date" id="vol-end"></div>
+      </div>
+      <button type="submit" class="primary" style="margin-top:14px">⚡ 開始統計</button>
+    </form>
+    <div id="out-vol">
+      <div class="panel placeholder"><div class="big">⚡</div>比較不同標的的波動程度，了解自己買的東西「有多刺激」。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 6. 看盤牆 ======================= -->
+<section class="tab" id="tab-wall">
+  <div class="panel">
+    <div class="wall-bar">
+      <div class="field"><label for="wall-group">群組</label><select id="wall-group"></select></div>
+      <div class="field"><label for="wall-grid">格數</label><select id="wall-grid"><option value="2">2×2</option><option value="3" selected>3×3</option><option value="4">4×4</option></select></div>
+      <div class="field"><label for="wall-tf">K 線週期</label><select id="wall-tf"><option value="D">日 K</option><option value="W" selected>週 K</option><option value="M">月 K</option></select></div>
+      <div class="field"><label for="wall-rotate">自動輪播</label><select id="wall-rotate"><option value="0">不輪播</option><option value="15">15 秒</option><option value="30" selected>30 秒</option><option value="60">1 分鐘</option><option value="120">2 分鐘</option><option value="300">5 分鐘</option></select></div>
+      <button type="button" class="secondary small" id="wall-next">下一頁 ▶</button>
+      <button type="button" class="secondary small" id="wall-full">⛶ 全螢幕</button>
+      <button type="button" class="secondary small" id="wall-manage-btn">🛠️ 管理群組</button>
+      <span class="countdown" id="wall-countdown"></span>
+    </div>
+    <div id="wall-manage" hidden class="panel" style="margin-bottom:10px">
+      <p class="hint" style="margin-top:0">群組只存在<b>這台電腦的這個瀏覽器</b>（localStorage）。換電腦請用「匯出 / 匯入」。代號格式同 TradingView，例如 <code>NASDAQ:NVDA</code>、<code>TWSE:2330</code>、<code>BINANCE:BTCUSDT</code>，一行一個。</p>
+      <div class="row2">
+        <div class="field"><label for="wall-edit-name">群組名稱</label><input type="text" id="wall-edit-name"></div>
+        <div class="field"><label>&nbsp;</label>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" class="secondary small" id="wall-save">💾 儲存</button>
+            <button type="button" class="secondary small" id="wall-new">➕ 新群組</button>
+            <button type="button" class="secondary small" id="wall-del">🗑️ 刪除</button>
+          </div>
+        </div>
+      </div>
+      <div class="field" style="margin-top:10px"><textarea id="wall-edit-list" rows="8"></textarea></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button type="button" class="secondary small" id="wall-export">⬇️ 匯出 JSON</button>
+        <label class="secondary small" style="cursor:pointer;border:1px solid var(--border);border-radius:8px;padding:4px 10px">⬆️ 匯入 JSON<input type="file" id="wall-import" accept=".json" hidden></label>
+        <button type="button" class="secondary small" id="wall-reset">↺ 還原預設</button>
+      </div>
+    </div>
+    <div id="tv-grid"></div>
+    <p class="hint">滑鼠移到圖表上會暫停輪播。圖表由 TradingView 提供。</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="site">
+  資料來源：Yahoo Finance（還原權息價，每個平日自動更新）· 僅供教育用途，不構成投資建議 · 過去績效不代表未來
+</footer>
+
+<script type="module" src="assets/js/app.js"></script>
+</body>
+</html>

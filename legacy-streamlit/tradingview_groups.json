@@ -1,0 +1,58 @@
+{
+    "前20大市值美股(含TSM)": [
+        "NASDAQ:QQQ",
+        "NASDAQ:AAPL",
+        "PPA",
+        "NASDAQ:MSFT",
+        "NASDAQ:NVDA",
+        "NASDAQ:GOOGL",
+        "NASDAQ:AMZN",
+        "NASDAQ:META",
+        "NYSE:TSM",
+        "CRWD",
+        "MU",
+        "INTC",
+        "NYSE:BRK.B",
+        "NYSE:LLY",
+        "NASDAQ:AVGO",
+        "NYSE:JPM",
+        "NYSE:XOM",
+        "NYSE:V",
+        "NYSE:MA",
+        "NASDAQ:TSLA",
+        "KTOS"
+    ],
+    "美股熱門科技": [
+        "NASDAQ:NVDA",
+        "NASDAQ:AAPL",
+        "NASDAQ:MSFT",
+        "NASDAQ:GOOGL",
+        "NASDAQ:AMZN",
+        "NASDAQ:META",
+        "NASDAQ:TSLA",
+        "NASDAQ:AMD",
+        "NASDAQ:AVGO",
+        "NYSE:TSM",
+        "NASDAQ:NFLX"
+    ],
+    "台股精選": [
+        "TWSE:2330",
+        "TWSE:2454",
+        "TWSE:2317",
+        "TWSE:2308",
+        "TWSE:2881",
+        "TWSE:2882",
+        "TWSE:2891",
+        "TWSE:2603",
+        "TWSE:2886",
+        "TWSE:2412"
+    ],
+    "加密貨幣": [
+        "BINANCE:BTCUSDT",
+        "BINANCE:ETHUSDT",
+        "BINANCE:SOLUSDT",
+        "BINANCE:BNBUSDT",
+        "BINANCE:XRPUSDT",
+        "BINANCE:DOGEUSDT"
+    ]
+}

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TradingView Dashboard Template</title>
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;
+            background-color: #131722; /* TradingView 深色模式背景 */
+            color: #d1d4dc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 儀表板網格佈局 */
+        #dashboard {
+            flex: 1;
+            display: grid;
+            width: 100%;
+            height: 100%;
+            gap: 2px; /* 網格間距，可視為分隔線 */
+            background-color: #2b2b43; /* 分隔線的顏色 */
+        }
+
+        .chart-container {
+            width: 100%;
+            height: 100%;
+            background-color: #131722;
+            position: relative;
+        }
+
+        #countdown-overlay {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.75);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-family: monospace;
+            z-index: 1000;
+            pointer-events: none;
+            display: none;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            border: 1px solid #363c4e;
+        }
+    </style>
+    <!-- 引入 TradingView Advanced Chart Widget API -->
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+</head>
+<body>
+    <!-- 用於放置所有圖表的容器 -->
+    <div id="dashboard"></div>
+    <div id="countdown-overlay">
+        <span id="countdown-text">輪播倒數: </span>
+        <span id="countdown-seconds">0</span>
+        <span id="countdown-suffix"> 秒</span>
+    </div>
+
+    <script>
+        // 接收來自 Python 注入的設定
+        const config = {{CONFIG}};
+        
+        const currentSymbols = config.symbols || [];
+        const gridSize = parseInt(config.gridSize) || 3;
+        const intervalTime = parseInt(config.intervalTime) || 10000;
+        const timeframe = config.timeframe || "D";
+        
+        let currentIndex = 0; // 當前輪播起始索引
+        let timer = null;     // 計時器實例
+        let isPaused = false;
+        let timeLeft = 0;
+        
+        const dashboard = document.getElementById('dashboard');
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        const textSpan = document.getElementById('countdown-text');
+        const secSpan = document.getElementById('countdown-seconds');
+        const suffixSpan = document.getElementById('countdown-suffix');
+
+        // 初始化看板
+        function initDashboard() {
+            if (currentSymbols.length === 0) return;
+            createGrid();
+            updateCharts();
+            setupInteraction();
+            startTimer();
+        }
+
+        // 建立 CSS Grid 容器
+        function createGrid() {
+            const totalCells = gridSize * gridSize;
+            dashboard.style.gridTemplateColumns = `repeat(${gridSize}, 1fr)`;
+            dashboard.style.gridTemplateRows = `repeat(${gridSize}, 1fr)`;
+            dashboard.innerHTML = '';
+
+            for (let i = 0; i < totalCells; i++) {
+                const container = document.createElement('div');
+                container.className = 'chart-container';
+                container.id = `tv_chart_${i}`;
+                dashboard.appendChild(container);
+            }
+        }
+
+        // 更新所有圖表的內容
+        function updateCharts() {
+            dashboard.innerHTML = ''; // 清空現有圖表
+
+            const totalCells = gridSize * gridSize;
+            // 每次輪播往後推 totalCells 個標的
+            const currentBatch = [];
+            for (let i = 0; i < totalCells; i++) {
+                currentBatch.push(currentSymbols[(currentIndex + i) % currentSymbols.length]);
+            }
+
+            currentBatch.forEach((symbol, index) => {
+                const cell = document.createElement('div');
+                cell.className = 'chart-container';
+                cell.id = `tv_chart_${index}`;
+                dashboard.appendChild(cell);
+
+                new TradingView.widget({
+                    "autosize": true,
+                    "symbol": symbol,
+                    "interval": timeframe,
+                    "timezone": "Asia/Taipei",
+                    "theme": "dark",
+                    "style": "1",
+                    "locale": "zh_TW",
+                    "enable_publishing": false,
+                    "backgroundColor": "#131722",
+                    "gridColor": "#363c4e",
+                    "hide_top_toolbar": true,
+                    "hide_legend": false,
+                    "save_image": false,
+                    "hide_side_toolbar": true,
+                    "withdateranges": false,
+                    "details": false,
+                    "hotlist": false,
+                    "calendar": false,
+                    "allow_symbol_change": false,
+                    "hide_volume": true,
+                    "container_id": `tv_chart_${index}`
+                });
+            });
+
+            // 計算下一批的起始索引
+            currentIndex = (currentIndex + totalCells) % currentSymbols.length;
+        }
+
+        function setupInteraction() {
+            document.body.addEventListener('mouseenter', () => {
+                isPaused = true;
+                countdownOverlay.style.background = 'rgba(200, 50, 50, 0.8)';
+                textSpan.textContent = '輪播已暫停 (滑鼠在內)';
+                secSpan.style.display = 'none';
+                suffixSpan.style.display = 'none';
+            });
+            document.body.addEventListener('mouseleave', () => {
+                isPaused = false;
+                countdownOverlay.style.background = 'rgba(0, 0, 0, 0.75)';
+                textSpan.textContent = '輪播倒數: ';
+                secSpan.style.display = 'inline';
+                suffixSpan.style.display = 'inline';
+            });
+        }
+
+        function startTimer() {
+            if (timer) clearInterval(timer);
+            const totalCells = gridSize * gridSize;
+            
+            // 只有當總標的數量大於格子數時，才需要輪播
+            if (currentSymbols.length > totalCells && intervalTime > 0) {
+                timeLeft = intervalTime / 1000;
+                countdownOverlay.style.display = 'block';
+                secSpan.textContent = Math.ceil(timeLeft);
+                
+                timer = setInterval(() => {
+                    if (!isPaused) {
+                        timeLeft -= 1;
+                        if (timeLeft <= 0) {
+                            updateCharts();
+                            timeLeft = intervalTime / 1000;
+                        }
+                        secSpan.textContent = Math.ceil(timeLeft);
+                    }
+                }, 1000);
+            } else {
+                countdownOverlay.style.display = 'none';
+            }
+        }
+
+        // ------------------ 啟動 ------------------
+        window.addEventListener('DOMContentLoaded', () => {
+            initDashboard();
+        });
+
+    </script>
+</body>
+</html>
