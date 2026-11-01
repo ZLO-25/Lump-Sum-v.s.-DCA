@@ -117,7 +117,7 @@ export function annualReturns(dates, values, startValue) {
     const y = dates[i].slice(0, 4);
     const isLast = i === dates.length - 1 || dates[i + 1].slice(0, 4) !== y;
     if (isLast) {
-      rows.push({ year: y, endValue: values[i], ret: values[i] / prev - 1 });
+      rows.push({ year: y, endValue: values[i], ret: values[i] / prev - 1, idx: i });
       prev = values[i];
     }
   }
@@ -251,7 +251,14 @@ export function lumpSumVsDca(series, opts) {
     years,
     ls: summarize(lsValue),
     dca: { ...summarize(dcaValue), avgCost, avgPrice, avgExposure, finalCash: cash },
-    annual: lsAnnual.map((r, i) => ({ year: r.year, ls: r.ret, dca: dcaAnnual[i].ret })),
+    // 逐年：報酬率 + 年底資產金額 + DCA 年底已投入比例
+    // 全部買完之後兩者都是 100% 持股，報酬率會一樣；差距反映在「年底資產金額」
+    annual: lsAnnual.map((r, i) => ({
+      year: r.year,
+      ls: r.ret, dca: dcaAnnual[i].ret,
+      lsEnd: r.endValue, dcaEnd: dcaAnnual[i].endValue,
+      dcaInvestedPct: dcaInvested[r.idx] / amount,
+    })),
   };
 }
 

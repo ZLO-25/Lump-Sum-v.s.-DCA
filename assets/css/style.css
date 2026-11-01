@@ -205,3 +205,19 @@ fieldset.admin-group legend input { font-weight: 700; width: 260px; max-width: 7
 table.admin-table td { padding: 3px 4px; }
 table.admin-table input { padding: 5px 8px; min-width: 90px; }
 table.admin-table td:nth-child(2) input { min-width: 180px; }
+
+/* 輸入框下方的提示 / 查無資料 */
+.picker-msg { font-size: .8rem; color: var(--muted); margin-top: 4px; }
+.picker-msg:empty { display: none; }
+.picker-msg.bad { color: var(--bad); }
+.alloc-row .alloc-msg { grid-column: 1 / -1; margin-top: 0; }
+.chip.missing { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+/* 逐年表：每格兩行（報酬率 + 金額） */
+table.data .sub { display: block; font-size: .75rem; color: var(--muted); font-weight: 400; }
+table.annual td, table.annual th { padding: 6px 8px; }
+@media (max-width: 600px) {
+  table.data { font-size: .8rem; }
+  table.data th, table.data td { padding: 5px 6px; }
+}
+/* 表格太寬時提示可以左右滑動 */
+.table-wrap.scrollable::before { content: "← 表格可左右滑動 →"; display: block; font-size: .75rem; color: var(--muted); text-align: right; margin-bottom: 2px; }

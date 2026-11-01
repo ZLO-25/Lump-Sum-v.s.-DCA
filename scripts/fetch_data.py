@@ -39,6 +39,30 @@ def currency_of(symbol: str) -> str:
     return "USD"
 
 
+def repair_limit_breaks(symbol: str, s: pd.Series):
+    """
+    台股有每日漲跌幅限制（2015/6 前 ±7%，之後 ±10%），單日變動不可能超過 ±25%。
+    Yahoo 的台股還原價偶爾會在某一天「斷層」（例如 0050 在 2014-01-02 出現 +75%），
+    通常是還原權息的係數算錯。處理方式：把斷層那天的報酬視為 0，前面的價格整段等比例調整，
+    這樣斷層前後各自的漲跌幅都保留，只移除那一天不存在的假漲跌。
+    """
+    fixes = []
+    if not (symbol.endswith(".TW") or symbol.endswith(".TWO")):
+        return s, fixes
+    s = s.copy()
+    for _ in range(20):  # 最多修 20 個斷層
+        r = s.pct_change()
+        bad = r[r.abs() > 0.25]
+        if bad.empty:
+            break
+        d = bad.index[0]
+        i = s.index.get_loc(d)
+        factor = s.iloc[i] / s.iloc[i - 1]
+        s.iloc[:i] = s.iloc[:i] * factor
+        fixes.append((d.date(), float(bad.iloc[0])))
+    return s, fixes
+
+
 def round_sig(x: float, sig: int = 7) -> float:
     if x == 0 or not math.isfinite(x):
         return x
@@ -89,7 +113,10 @@ def main() -> int:
                     tickers_out.append(old_manifest[sym])
                 continue
 
-            # 簡單的資料品質檢查：單日漲跌超過 ±60% 通常是資料錯誤（或極端個股事件），印出來人工確認
+            # 資料品質檢查
+            s, fixes = repair_limit_breaks(sym, s)
+            for d, v in fixes:
+                print(f"  ! {sym} {d} 單日變動 {v:+.0%} 超過漲跌幅限制，判定為資料錯誤，已校正")
             jumps = s.pct_change().abs()
             for d, v in jumps[jumps > 0.6].items():
                 print(f"  ? {sym} {d.date()} 單日變動 {v:+.0%}，請確認資料是否正確")

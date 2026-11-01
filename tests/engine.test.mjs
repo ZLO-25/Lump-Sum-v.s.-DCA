@@ -148,3 +148,14 @@ test("管理金鑰：用密碼加密後只有正確密碼能解開", async () =>
   assert.throws(() => validateConfig({ groups: [{ name: "a", tickers: [{ symbol: "BAD SYM" }] }] }), /格式/);
   validateConfig({ groups: [{ name: "a", tickers: [{ symbol: "0050.TW" }, { symbol: "^GSPC" }, { symbol: "6488.TWO" }, { symbol: "BRK-B" }] }] });
 });
+
+test("逐年報酬：DCA 買完之後與單筆的年報酬相同，但年底資產不同", () => {
+  const ser = makeSeries("2018-01-01", 1300, (i) => 100 * Math.pow(1.0005, i) * (1 + 0.08 * Math.sin(i / 30)));
+  const r = lumpSumVsDca(ser, { amount: 1200, start: "2018-01-01", end: "2023-12-31", dcaMonths: 18, dcaCount: 18 });
+  const y2020 = r.annual.find((a) => a.year === "2020");
+  close(y2020.ls, y2020.dca, 1e-9);          // 2020 已全部投入 → 報酬率相同
+  assert.ok(Math.abs(y2020.lsEnd - y2020.dcaEnd) > 1); // 但金額不同
+  close(y2020.lsEnd / y2020.dcaEnd, r.ls.final / r.dca.final, 1e-9); // 差距比例固定
+  assert.equal(y2020.dcaInvestedPct, 1);
+  assert.ok(r.annual[0].dcaInvestedPct < 1); // 18 個月分批 → 2018 年底還沒買完
+});

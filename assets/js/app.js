@@ -51,7 +51,8 @@ const currencyOf = (sym) => state.meta.get(sym)?.currency || "";
 async function loadManifest() {
   const status = $("#data-status");
   try {
-    const res = await fetch("data/manifest.json", { cache: "no-cache" });
+    // 加上時間戳記，避免 GitHub Pages 的 CDN 快取（約 10 分鐘）讓「管理標的」改完後還看到舊清單
+    const res = await fetch(`data/manifest.json?t=${Date.now()}`, { cache: "no-store" });
     if (!res.ok) throw new Error(res.status);
     state.manifest = await res.json();
     for (const g of state.manifest.groups) for (const t of g.tickers) state.meta.set(t.symbol, { ...t, group: g.name });
@@ -64,11 +65,20 @@ async function loadManifest() {
   refreshTickerSelects();
 }
 
+/** 網站沒有這個代號的資料（尚未收錄，或 Yahoo 抓不到） */
+class NoDataError extends Error {
+  constructor(sym) {
+    super(`查無資料：「${sym}」尚未收錄。可到右上角「⚙️ 管理標的」新增（約 2 分鐘後可用），或用「📂 上傳 CSV」。`);
+    this.symbol = sym;
+  }
+}
+
 function loadSeries(sym) {
   if (!state.cache.has(sym)) {
     const m = state.meta.get(sym);
-    if (!m || !m.file) return Promise.reject(new Error(`清單中沒有「${sym}」。可用右上角「上傳 CSV」，或在 scripts/tickers.json 新增後重新部署。`));
-    state.cache.set(sym, fetch(`data/${m.file}`).then((r) => {
+    if (!m || !m.file) return Promise.reject(new NoDataError(sym));
+    const v = encodeURIComponent(state.manifest?.updated || "");
+    state.cache.set(sym, fetch(`data/${m.file}?v=${v}`).then((r) => {
       if (!r.ok) throw new Error(`${sym} 資料下載失敗 (${r.status})`);
       return r.json();
     }).catch((e) => { state.cache.delete(sym); throw e; }));
@@ -90,7 +100,10 @@ function tickerOptions(selected) {
 /** 資料清單載入或上傳 CSV 後，重建所有下拉選單 */
 function refreshTickerSelects() {
   $$(".picker select").forEach((sel) => { sel.innerHTML = `<option value="">＋ 從清單選擇標的加入…</option>${tickerOptions()}`; });
-  $$("#alloc-rows select").forEach((sel) => { const v = sel.value || sel.dataset.want; sel.innerHTML = `<option value="">選擇標的…</option>${tickerOptions(v)}`; });
+  // 資產配置的輸入框用 datalist 提供建議，也可以自己打任何代號
+  let dl = $("#ticker-list");
+  if (!dl) { dl = document.createElement("datalist"); dl.id = "ticker-list"; document.body.appendChild(dl); }
+  dl.innerHTML = [...state.meta.values()].map((m) => `<option value="${esc(m.symbol)}">${esc(m.name || "")}</option>`).join("");
   const t = $("#timing-sym");
   if (t) t.innerHTML = tickerOptions(t.value || "^GSPC");
   Object.keys(state.pickers).forEach(renderChips);
@@ -163,24 +176,47 @@ function initPickers() {
   $$(".picker").forEach((el) => {
     const name = el.dataset.picker;
     state.pickers[name] = el.dataset.default.split(",").filter(Boolean);
-    el.innerHTML = `<select aria-label="選擇投資標的"></select><div class="chips"></div><div class="hint picker-msg" role="status"></div>`;
-    const sel = $("select", el);
-    // 用下拉選單取代原本的「輸入框 + 加入按鈕」：選了就加入，不會打錯代號
-    sel.addEventListener("change", () => {
-      const sym = sel.value;
-      sel.value = "";
-      if (!sym) return;
+    el.innerHTML = `
+      <select aria-label="從清單選擇投資標的"></select>
+      <div class="picker-row" style="margin-top:6px">
+        <input type="text" placeholder="或手動輸入代號，例如 00631L、AAPL" aria-label="手動輸入代號" autocapitalize="characters" autocomplete="off" spellcheck="false">
+        <button type="button" class="secondary small">加入</button>
+      </div>
+      <div class="chips"></div>
+      <div class="picker-msg" role="status"></div>`;
+    const sel = $("select", el), input = $("input", el), btn = $("button", el);
+    const add = (sym) => {
       const max = +el.dataset.max;
       const list = state.pickers[name];
-      const msg = $(".picker-msg", el);
-      msg.textContent = "";
-      if (list.includes(sym)) { msg.textContent = `${sym} 已經在清單裡了`; return; }
+      pickerMsg(name, "");
+      if (list.includes(sym)) { pickerMsg(name, `${esc(sym)} 已經在清單裡了`); return false; }
       if (max === 1) list.splice(0, list.length, sym);
-      else if (list.length >= max) { msg.textContent = `最多 ${max} 檔，請先按 × 移除一檔`; return; }
+      else if (list.length >= max) { pickerMsg(name, `最多 ${max} 檔，請先按 × 移除一檔`); return false; }
       else list.push(sym);
       renderChips(name);
-    });
+      return true;
+    };
+    // 下拉選單：選了就加入
+    sel.addEventListener("change", () => { const v = sel.value; sel.value = ""; if (v) add(v); });
+    // 手動輸入：清單裡有就用清單的代號（0050 → 0050.TW）；沒有也照樣加入，執行時再標示「查無資料」
+    const addTyped = () => {
+      const raw = input.value.trim();
+      if (!raw) return;
+      const sym = resolveSymbol(raw) || raw.toUpperCase();
+      if (add(sym)) {
+        input.value = "";
+        if (!state.meta.has(sym)) pickerMsg(name, `⚠️ 「${esc(sym)}」目前不在資料清單中，執行時會跳過。可到「⚙️ 管理標的」新增。`, "bad");
+      }
+    };
+    btn.addEventListener("click", addTyped);
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); addTyped(); } });
   });
+}
+
+/** 在標的輸入框下方顯示訊息 */
+function pickerMsg(name, html, kind = "") {
+  const m = $(`.picker[data-picker="${name}"] .picker-msg`);
+  if (m) { m.innerHTML = html; m.className = `picker-msg ${kind}`; }
 }
 
 function renderChips(name) {
@@ -189,12 +225,20 @@ function renderChips(name) {
   el.innerHTML = state.pickers[name].map((s) => {
     const m = state.meta.get(s);
     const title = m ? `${m.name || ""}${m.start ? `｜資料 ${m.start} 起` : ""}${m.note ? `｜${m.note}` : ""}` : "";
-    return `<span class="chip" title="${esc(title)}">${esc(s)}<button type="button" aria-label="移除 ${esc(s)}" data-sym="${esc(s)}">×</button></span>`;
+    const missing = state.meta.size && !(m && m.file) ? " missing" : "";
+    return `<span class="chip${missing}" title="${esc(title || "查無資料")}">${missing ? "⚠️ " : ""}${esc(s)}<button type="button" aria-label="移除 ${esc(s)}" data-sym="${esc(s)}">×</button></span>`;
   }).join("");
   $$("button", el).forEach((b) => b.addEventListener("click", () => {
     state.pickers[name] = state.pickers[name].filter((x) => x !== b.dataset.sym);
     renderChips(name);
   }));
+}
+
+/** 執行後：把查無資料的代號標在輸入框下方，其餘照常計算 */
+function showMissing(name, missing) {
+  pickerMsg(name, missing.length
+    ? `⚠️ 查無資料：<b>${missing.map(esc).join("、")}</b>${name === "rolling" ? "" : "（已跳過，其他標的照常計算）"}。網站只收錄「⚙️ 管理標的」清單裡的代號，新增後約 2 分鐘可用；也可以用「📂 上傳 CSV」。`
+    : "", "bad");
 }
 
 // ---------- 圖表 ----------
@@ -280,15 +324,17 @@ $("#form-dca").addEventListener("submit", async (e) => {
     saveHash("dca", { t: tickers.join(","), a: opts.amount, s: opts.start, e: $("#dca-end").value, m: opts.dcaMonths, n: opts.dcaCount, y: $("#dca-yield").value });
 
     const results = [], warns = [];
+    const missing = [];
     for (const sym of tickers) {
       try {
         const series = await loadSeries(sym);
         const r = lumpSumVsDca(series, opts);
         if (r.error) { warns.push(`${esc(sym)}：${esc(r.error)}`); continue; }
         results.push(r);
-      } catch (err) { warns.push(esc(err.message)); }
+      } catch (err) { missing.push(sym); }
     }
-    if (!results.length) { out.innerHTML = notices(warns) || ""; return; }
+    showMissing("dca", missing);
+    if (!results.length) { errorBox(out, missing.length ? "所有標的都查無資料，請看輸入框下方的說明。" : warns.join("；")); return; }
     renderDca(out, results, opts, warns);
   } catch (err) { errorBox(out, err.message); }
 });
@@ -363,9 +409,19 @@ function renderDca(out, results, opts, warns) {
     </div>
 
     <div class="panel">
-      <h3>逐年報酬率</h3>
-      <p class="hint" style="margin-top:0">以每年最後一個交易日的「總資產（含未投入現金）」計算；第一年從開始日起算，最後一年到結束日為止（可能不滿一年）。</p>
-      <div class="table-wrap">${annualTable(results)}</div>
+      <h3>逐年報酬率與年底資產</h3>
+      <p class="hint" style="margin-top:0">每格上方是當年報酬率，下方是年底總資產（含未投入現金）。第一年從開始日起算，最後一年到結束日為止（可能不滿一年）。</p>
+      ${annualTable(results)}
+      <details class="explain" open><summary>為什麼買完之後，兩邊每年的報酬率都一樣？</summary>
+        <p>因為 DCA 買完之後，手上也是 <b>100% 持有同一檔標的</b>，和單筆投入一模一樣，所以每年漲跌的百分比自然相同。兩者的差別只發生在<b>買進期間</b>：</p>
+<pre class="ascii">
+買進期間（例：第 1 年）              買完之後（第 2 年起）
+  單筆：100% 在市場                    單筆：100% 在市場 ┐ 持股比例相同
+  定投：一部分在市場 + 一部分現金       定投：100% 在市場 ┘ → 每年報酬率相同
+  → 報酬率不同，差距在這裡產生          → 差距「按比例」跟著放大或縮小
+</pre>
+        <p>所以要看「差距」欄的<b>金額</b>：買完之後，差距的百分比固定不變，但金額會隨市場一起變大或變小。這也說明了單筆 vs 定投真正的勝負，在買進期間就已經決定了。</p>
+      </details>
     </div>`;
 
   // 圖 1：資產價值
@@ -421,13 +477,22 @@ function metricsTable(results) {
 }
 
 function annualTable(results) {
-  const years = [...new Set(results.flatMap((r) => r.annual.map((a) => a.year)))].sort();
-  const head = results.map((r) => `<th>${esc(r.symbol)} 單筆</th><th>${esc(r.symbol)} 定期定額</th>`).join("");
-  const body = years.map((y) => `<tr><td>${y}</td>${results.map((r) => {
-    const a = r.annual.find((x) => x.year === y);
-    return a ? `<td class="${cls(a.ls)}">${fmtPct(a.ls)}</td><td class="${cls(a.dca)}">${fmtPct(a.dca)}</td>` : "<td>—</td><td>—</td>";
-  }).join("")}</tr>`).join("");
-  return `<table class="data"><thead><tr><th>年度</th>${head}</tr></thead><tbody>${body}</tbody></table>`;
+  // 每檔一張表，只有 4 欄，手機也放得下；每格同時顯示「報酬率」與「年底資產」
+  return results.map((r) => {
+    const cur = currencyOf(r.symbol);
+    const rows = r.annual.map((a) => {
+      const gap = a.dcaEnd - a.lsEnd;
+      const buying = a.dcaInvestedPct < 0.9999;
+      return `<tr>
+        <td>${a.year}${buying ? `<div class="sub">買進中・已投入 ${Math.round(a.dcaInvestedPct * 100)}%</div>` : ""}</td>
+        <td><span class="${cls(a.ls)}">${fmtPct(a.ls)}</span><div class="sub">${fmtMoney(a.lsEnd, cur)}</div></td>
+        <td><span class="${cls(a.dca)}">${fmtPct(a.dca)}</span><div class="sub">${fmtMoney(a.dcaEnd, cur)}</div></td>
+        <td class="${cls(gap)}">${gap >= 0 ? "+" : "−"}${fmtMoney(Math.abs(gap), cur)}<div class="sub">${fmtPct(a.dcaEnd / a.lsEnd - 1)}</div></td>
+      </tr>`;
+    }).join("");
+    return `<h4 style="margin:14px 0 6px">${esc(label(r.symbol))}</h4>
+      <div class="table-wrap"><table class="data annual"><thead><tr><th>年度</th><th>單筆</th><th>定期定額</th><th>差距<br><span class="sub">定投 − 單筆</span></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }).join("");
 }
 
 // ============================================================
@@ -450,7 +515,9 @@ $("#form-rolling").addEventListener("submit", async (e) => {
     if (opts.dcaMonths > opts.horizonMonths) throw new Error("「分幾個月買完」不能超過「每次持有幾年」");
     busy(out, "逐月計算中…");
     saveHash("rolling", { t: sym, f: opts.from || "", h: opts.horizonMonths, m: opts.dcaMonths, n: opts.dcaCount, y: $("#roll-yield").value });
-    const series = await loadSeries(sym);
+    let series;
+    try { series = await loadSeries(sym); } catch (err) { showMissing("rolling", [sym]); throw new Error("此標的查無資料，請看輸入框下方的說明。"); }
+    showMissing("rolling", []);
     // 讓「計算中」先畫出來
     await new Promise((r) => setTimeout(r, 10));
     const res = rollingComparison(series, opts);
@@ -529,19 +596,19 @@ function renderRolling(out, sym, res, opts) {
 function addAllocRow(sym = "", w = "") {
   const row = document.createElement("div");
   row.className = "alloc-row";
-  row.innerHTML = `<select aria-label="標的代號" data-want="${esc(sym)}"><option value="">選擇標的…</option>${tickerOptions(sym)}</select>
-    <input type="number" value="${w}" min="0" max="100" step="5" aria-label="比例 %" placeholder="%">
-    <button type="button" aria-label="移除">✕</button>`;
+  row.innerHTML = `<input type="text" class="alloc-sym" list="ticker-list" value="${esc(sym)}" placeholder="代號，例如 0050" aria-label="標的代號" autocapitalize="characters" autocomplete="off" spellcheck="false">
+    <input type="number" class="alloc-w" value="${w}" min="0" max="100" step="5" aria-label="比例 %" placeholder="%">
+    <button type="button" aria-label="移除">✕</button>
+    <div class="picker-msg bad alloc-msg"></div>`;
   $("button", row).addEventListener("click", () => { row.remove(); updateAllocSum(); });
-  $("input", row).addEventListener("input", updateAllocSum);
-  $("select", row).addEventListener("change", (e) => { delete e.target.dataset.want; });
+  $(".alloc-w", row).addEventListener("input", updateAllocSum);
+  $(".alloc-sym", row).addEventListener("input", () => { $(".alloc-msg", row).textContent = ""; });
   $("#alloc-rows").appendChild(row);
   updateAllocSum();
 }
 function readAllocRows() {
   return $$("#alloc-rows .alloc-row").map((r) => {
-    const a = $("select", r), b = $("input", r);
-    return { raw: a.value || a.dataset.want || "", w: parseFloat(b.value) || 0 };
+    return { raw: $(".alloc-sym", r).value.trim(), w: parseFloat($(".alloc-w", r).value) || 0, el: r };
   }).filter((x) => x.raw || x.w);
 }
 function updateAllocSum() {
@@ -560,11 +627,12 @@ $("#form-alloc").addEventListener("submit", async (e) => {
   try {
     const rows = readAllocRows();
     if (!rows.length) throw new Error("請至少新增一個標的");
-    const syms = rows.map((r) => {
-      const s = resolveSymbol(r.raw);
-      if (!s) throw new Error(`找不到標的「${r.raw}」`);
-      return s;
-    });
+    rows.forEach((r) => { $(".alloc-msg", r.el).textContent = ""; });
+    const syms = rows.map((r) => resolveSymbol(r.raw) || r.raw.toUpperCase());
+    // 查無資料的列：在該列下方標示。資產配置需要每一檔都有資料，比例才算得對，所以這裡不會略過
+    const bad = rows.filter((r, i) => !state.meta.get(syms[i])?.file);
+    bad.forEach((r) => { $(".alloc-msg", r.el).textContent = `⚠️ 查無資料：「${r.raw}」尚未收錄，可到「⚙️ 管理標的」新增。`; });
+    if (bad.length) throw new Error("有標的查無資料（見左側輸入框下方）。資產配置的比例需要每一檔都有資料，請移除或替換後再試。");
     if (new Set(syms).size !== syms.length) throw new Error("有重複的標的，請合併比例");
     const sum = rows.reduce((a, r) => a + r.w, 0);
     if (Math.abs(sum - 100) > 0.01) throw new Error(`目前比例合計 ${sum}%，需剛好 100%`);
@@ -657,13 +725,15 @@ $("#form-vol").addEventListener("submit", async (e) => {
     if (!ths.length) throw new Error("請設定至少一個門檻");
     busy(out);
     const res = [], warns = [];
+    const missing = [];
     for (const s of syms) {
       try {
         const r = volatilityStats(await loadSeries(s), ths, $("#vol-start").value || null, $("#vol-end").value || null);
         if (r.error) warns.push(esc(r.error)); else res.push(r);
-      } catch (err) { warns.push(esc(err.message)); }
+      } catch (err) { missing.push(s); }
     }
-    if (!res.length) throw new Error(warns.join("；") || "沒有可分析的資料");
+    showMissing("vol", missing);
+    if (!res.length) throw new Error(missing.length ? "所有標的都查無資料，請看輸入框下方的說明。" : warns.join("；") || "沒有可分析的資料");
     renderVol(out, res, ths, warns);
   } catch (err) { errorBox(out, err.message); }
 });
@@ -933,6 +1003,15 @@ function initEvents() {
     startInput.addEventListener("input", () => { sel.value = ""; });
   });
 }
+
+/** 表格比畫面寬時，顯示「可左右滑動」提示（手機上特別需要） */
+function markScrollable() {
+  $$(".table-wrap").forEach((w) => w.classList.toggle("scrollable", w.scrollWidth > w.clientWidth + 2));
+}
+let scrollTimer;
+new MutationObserver(() => { clearTimeout(scrollTimer); scrollTimer = setTimeout(markScrollable, 100); })
+  .observe(document.querySelector("main"), { childList: true, subtree: true });
+window.addEventListener("resize", () => { clearTimeout(scrollTimer); scrollTimer = setTimeout(markScrollable, 100); });
 
 async function init() {
   $$('input[type="date"][id$="-end"]').forEach((i) => { i.max = today; });
