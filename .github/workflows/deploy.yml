@@ -43,6 +43,9 @@ jobs:
 
       - run: pip install -r scripts/requirements.txt
 
+      - name: 單元測試（台股資料校正規則）
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
       # 取回上一次成功下載的資料：若某檔今天抓不到，就沿用舊資料，網站不會壞掉
       - name: 還原上次的價格資料
         uses: actions/cache/restore@v4

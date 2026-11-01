@@ -18,4 +18,6 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r scripts/requirements.txt
-      - run: python scripts/diagnose_breaks.py ${{ inputs.symbols }}
+      - run: python scripts/diagnose_breaks.py $SYMBOLS
+        env:
+          SYMBOLS: ${{ inputs.symbols }}
