@@ -1,0 +1,21 @@
+# 手動執行：診斷價格資料的大跳動（分割 / 除權息 / 資料錯誤）
+name: 診斷價格跳動
+on:
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "代號（空白分隔，留空 = 全部）"
+        required: false
+        default: ""
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/requirements.txt
+      - run: python scripts/diagnose_breaks.py ${{ inputs.symbols }}
